@@ -1,0 +1,10 @@
+# Changelog
+
+## Unreleased
+
+## 0.1.0 – 2026-10-13
+
+The SP-10 Spectrum Analyser, moved out of EQ Box into its own program and renamed the Analyser (SP-001).
+
+- Same features as SP-10 in EQ Box 0.2.0: outputs and inputs on PipeWire and WASAPI, curve, bars or LEDs at 1/3, 1/6 or 1/12 octave, seven colour schemes, rise, fall and hold, range and slope, full screen, always on top and freeze.
+- Its own icon. Settings start fresh (SP-10's aren't carried over).

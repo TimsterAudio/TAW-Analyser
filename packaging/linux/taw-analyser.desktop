@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TAW Analyser
+Comment=Spectrum analyser by Timster's Audio Works
+Exec=taw-analyser
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupWMClass=taw-analyser

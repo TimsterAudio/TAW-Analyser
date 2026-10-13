@@ -1,0 +1,24 @@
+[package]
+name = "taw-analyser"
+version = "0.1.0"
+edition = "2021"
+description = "Timster's Audio Works Analyser (SP-001): a stand-alone spectrum analyser for Windows (WASAPI) and Linux (PipeWire)"
+authors = ["Timster's Audio Works"]
+publish = false
+
+[dependencies]
+# 0.2.0, with the spectrum drawing and the analyser
+taw-panel = { git = "https://github.com/TimsterAudio/TAW-Panel", rev = "41a95d4513d93dfbf18803508065a8c0a168ec95", features = ["analyser"] }
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
+egui = "0.36"
+cpal = "0.18"
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = { version = "0.10", features = ["v0_3_53"] }
+cpal = { version = "0.18", features = ["pipewire"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

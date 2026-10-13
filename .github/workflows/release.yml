@@ -1,0 +1,149 @@
+# Publishes a GitHub release whenever main carries a version (from
+# Cargo.toml) that hasn't been released yet. Bump the version, update
+# CHANGELOG.md, merge to main: the release `vX.Y.Z` appears with the Linux
+# and Windows downloads and that version's changelog as its notes.
+#
+# A release only happens when the version changes, so it runs only on
+# pushes that touch these files. On other branches it builds and packages
+# everything but publishes nothing, so the packaging can be checked first.
+
+name: Release
+
+on:
+  push:
+    paths:
+      - Cargo.toml
+      - CHANGELOG.md
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      # "true" only once the release exists *with* its downloads attached.
+      exists: ${{ steps.v.outputs.exists }}
+      # create: no release yet. attach: a release was made by hand on
+      # GitHub without files, so keep it and add the packages to it.
+      mode: ${{ steps.v.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          if assets=$(gh release view "v$ver" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length' 2>/dev/null); then
+            if [ "$assets" -gt 0 ]; then
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "v$ver is already released with $assets file(s); nothing to publish."
+            else
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              echo "mode=attach" >> "$GITHUB_OUTPUT"
+              echo "v$ver exists without files; the packages will be attached to it."
+            fi
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "mode=create" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    name: Package Linux
+    needs: version
+    if: needs.version.outputs.exists == 'false' || github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PipeWire and ALSA headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpipewire-0.3-dev libspa-0.2-dev libasound2-dev libclang-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Package
+        run: |
+          name="taw-analyser-${{ needs.version.outputs.version }}-linux-x86_64"
+          mkdir "$name"
+          cp target/release/taw-analyser packaging/linux/*.desktop README.md CHANGELOG.md "$name/"
+          tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-linux
+          path: taw-analyser-*.tar.gz
+
+  windows:
+    name: Package Windows
+    needs: version
+    if: needs.version.outputs.exists == 'false' || github.ref != 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "taw-analyser-${{ needs.version.outputs.version }}-windows-x86_64"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item target/release/taw-analyser.exe, README.md, CHANGELOG.md $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-windows
+          path: taw-analyser-*.zip
+
+  publish:
+    name: Publish release
+    needs: [version, linux, windows]
+    if: github.ref == 'refs/heads/main' && needs.version.outputs.exists == 'false'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          merge-multiple: true
+          path: dist
+      - name: Release notes from CHANGELOG.md
+        run: |
+          ver="${{ needs.version.outputs.version }}"
+          awk -v v="$ver" 'index($0, "## " v " ") == 1 {f=1; next} f && /^## / {exit} f' CHANGELOG.md > notes.md
+          cat >> notes.md <<'EOF'
+
+          ## Downloads
+
+          - **Linux** (`…-linux-x86_64.tar.gz`): extract it and run `./taw-analyser`.
+          - **Windows** (`…-windows-x86_64.zip`): extract it and run `taw-analyser.exe`.
+
+          The Analyser only listens. It never plays anything, so it can't feed back.
+          EOF
+          cat notes.md
+      - name: Create the release, or attach to the existing one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${{ needs.version.outputs.version }}"
+          if [ "${{ needs.version.outputs.mode }}" = "attach" ]; then
+            # Keep the hand-made release's title and notes; just add the files.
+            gh release upload "v$ver" dist/* --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "v$ver" dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "TAW Analyser $ver" \
+              --notes-file notes.md
+          fi
