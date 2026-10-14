@@ -7,6 +7,7 @@
 
 mod app;
 mod capture;
+mod family;
 mod icon;
 
 fn main() -> eframe::Result {
@@ -15,7 +16,10 @@ fn main() -> eframe::Result {
             .with_title("TAW Analyser")
             .with_app_id("taw-analyser")
             .with_inner_size(app::DEFAULT_SIZE)
-            .with_min_inner_size(egui::Vec2::new(320.0, 200.0))
+            .with_min_inner_size(egui::Vec2::new(480.0, 300.0))
+            // The Analyser draws its own title strip and window buttons;
+            // Settings can bring back the system's.
+            .with_decorations(false)
             .with_icon(icon::icon()),
         ..Default::default()
     };

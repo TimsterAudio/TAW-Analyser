@@ -7,12 +7,15 @@ authors = ["Timster's Audio Works"]
 publish = false
 
 [dependencies]
-# 0.2.0, with the spectrum drawing and the analyser
-taw-panel = { git = "https://github.com/TimsterAudio/TAW-Panel", rev = "41a95d4513d93dfbf18803508065a8c0a168ec95", features = ["analyser"] }
+# Unreleased (0.3.0 to be): the hifi look, with the spectrum drawing and the analyser
+taw-panel = { git = "https://github.com/TimsterAudio/TAW-Panel", rev = "f399c1d0519c84a2119d498b1ff6821cafee1993", features = ["analyser"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
 egui = "0.36"
 cpal = "0.18"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = { version = "0.10", features = ["v0_3_53"] }

@@ -1,6 +1,6 @@
 # TAW Analyser: working conventions
 
-The Analyser (SP-001) is Timster's Audio Works' stand-alone spectrum analyser, written in Rust with egui (via eframe). Its look, spectrum drawing and FFT come from the shared `taw-panel` crate (TimsterAudio/TAW-Panel, feature `analyser`), pinned by commit in Cargo.toml. Change those there, then move the pin.
+The Analyser (SP-001) is Timster's Audio Works' stand-alone spectrum analyser, written in Rust with egui (via eframe). Its look (the `hifi` module: finishes, nameplate, window buttons and controls), spectrum drawing and FFT come from the shared `taw-panel` crate (TimsterAudio/TAW-Panel, feature `analyser`), pinned by commit in Cargo.toml. The window has no system title bar unless the user turns it on in Settings. Change those there, then move the pin.
 
 ## Hard rules
 
@@ -17,6 +17,7 @@ The Analyser (SP-001) is Timster's Audio Works' stand-alone spectrum analyser, w
 | `src/main.rs` | The window. |
 | `src/app.rs` | The display (curve, bars, LED columns, grid) and the control strip, which scales to fit narrow windows and hides with H. |
 | `src/capture.rs` | Listen-only input: an output's monitor (PipeWire) or loopback (WASAPI), or an input device (cpal). |
+| `src/family.rs` | Finding and starting the Library, Player and Equaliser. |
 | `src/icon.rs` | The window icon. |
 
 ## Checks before pushing
@@ -28,7 +29,7 @@ cargo test
 cargo clippy --target x86_64-pc-windows-gnu -- -D warnings   # Windows still compiles
 ```
 
-For panel changes, screenshot it under Xvfb at 1280 × 640 and at a narrow size such as 800 × 500.
+For panel changes, screenshot it under Xvfb at 1280 × 720 and at a narrow size such as 800 × 500, in Anodised and Porcelain, light and dark.
 
 ## Workflow
 

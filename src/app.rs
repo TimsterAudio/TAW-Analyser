@@ -1,30 +1,37 @@
 //! The Analyser (SP-001): a stand-alone spectrum analyser. It listens to an
 //! output (what's playing) or an input, and fills the window with the
-//! spectrum as a curve, bars or LED columns, in the same colour schemes as
-//! the Equaliser. The control strip along the bottom can be hidden for a clean
-//! display on any screen, and the window can go full screen or stay on top.
+//! spectrum as a curve, bars or LED columns.
+//!
+//! The panel is the TAW hi-fi look (TAW-Panel's `hifi`): the nameplate,
+//! family switcher and window buttons along the top, the display window in
+//! the middle, and the controls in a bar along the bottom. H hides the
+//! nameplate and the bar for a clean display; the window can go full screen
+//! or stay on top.
 
 use crate::capture::{self, Capture, Source, DEFAULT_OUTPUT};
+use crate::family::{self, App};
 use egui::epaint::{Mesh, Vertex, WHITE_UV};
-use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Align2, Color32, CornerRadius, Id, Key, Pos2, Rect, Shape, Stroke, StrokeKind, Ui, Vec2,
-    ViewportCommand, WindowLevel,
+    Align2, Color32, CornerRadius, Id, Key, Pos2, Rect, Shape, Stroke, Ui, Vec2, ViewportCommand,
+    WindowLevel,
 };
 use serde::{Deserialize, Serialize};
 use taw_panel::analyzer::{analyzer_channel, Analyzer, Ballistics};
-use taw_panel::frame::draw_panel_bg;
+use taw_panel::hifi::{self, Seg, Tokens};
 use taw_panel::spectrum::{self, Look, Scheme};
-use taw_panel::theme::*;
-use taw_panel::widgets::*;
+use taw_panel::theme::PanelKind;
+use taw_panel::widgets::Spec;
 
 const STORAGE_KEY: &str = "taw-analyser";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-/// The control strip's design size; it's scaled down to fit narrow windows.
-const STRIP: Vec2 = Vec2::new(1490.0, 132.0);
-pub const DEFAULT_SIZE: Vec2 = Vec2::new(1280.0, 640.0);
+/// The narrowest the bottom bar fits at full size; narrower windows scale.
+const BAR_W: f32 = 1100.0;
+pub const DEFAULT_SIZE: Vec2 = Vec2::new(1280.0, 720.0);
 const F_MIN: f32 = 20.0;
 const F_MAX: f32 = 20_000.0;
+const PLATE_H: f32 = 96.0;
+const BAR_DETAILED: f32 = 132.0;
+const BAR_SIMPLE: f32 = 62.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum View {
@@ -36,13 +43,6 @@ pub enum View {
 
 impl View {
     const ALL: [View; 3] = [View::Curve, View::Bars, View::Leds];
-    fn short(self) -> &'static str {
-        match self {
-            View::Curve => "CURVE",
-            View::Bars => "BARS",
-            View::Leds => "LEDS",
-        }
-    }
 }
 
 /// Everything remembered between runs.
@@ -53,6 +53,7 @@ struct Saved {
     view: View,
     /// Bars per octave for Bars and LEDs: 3, 6 or 12.
     per_octave: u32,
+    /// The colour scheme, when not drawing in the display's own ink.
     scheme: Scheme,
     look: Look,
     rise_ms: f32,
@@ -65,7 +66,20 @@ struct Saved {
     grid: bool,
     controls: bool,
     on_top: bool,
+    /// The Jupiter panel before 0.2.0. Kept so older settings still load.
+    #[allow(dead_code)]
     panel: PanelKind,
+    /// Finish, light or dark, and accent.
+    finish: hifi::Look,
+    /// Draw in the display's own ink (white, or dark on Porcelain) rather
+    /// than a colour scheme.
+    ink: bool,
+    /// Simple view: just the picture and a few controls.
+    simple: bool,
+    /// Use the system's title bar instead of the Analyser's own.
+    system_title_bar: bool,
+    /// Where the user pointed the Analyser to family apps it couldn't find.
+    family: std::collections::HashMap<String, std::path::PathBuf>,
 }
 
 impl Default for Saved {
@@ -85,6 +99,11 @@ impl Default for Saved {
             controls: true,
             on_top: false,
             panel: PanelKind::Black,
+            finish: hifi::Look::default(),
+            ink: true,
+            simple: false,
+            system_title_bar: false,
+            family: Default::default(),
         }
     }
 }
@@ -133,11 +152,14 @@ pub struct AnalyserApp {
     sources: Vec<Source>,
     frozen: bool,
     fullscreen: bool,
+    settings_open: bool,
+    installed: [bool; 4],
+    message: Option<(String, f64)>,
 }
 
 impl AnalyserApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        install_fonts(&cc.egui_ctx);
+        hifi::install_fonts(&cc.egui_ctx);
         let s: Saved = cc
             .storage
             .and_then(|st| eframe::get_value(st, STORAGE_KEY))
@@ -150,14 +172,31 @@ impl AnalyserApp {
             sources: capture::sources(),
             frozen: false,
             fullscreen: false,
+            settings_open: false,
+            installed: [false, false, false, true],
+            message: None,
         };
         app.analyzer.hop = 1024;
         if app.s.on_top {
             cc.egui_ctx
                 .send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
         }
+        if app.s.system_title_bar {
+            cc.egui_ctx
+                .send_viewport_cmd(ViewportCommand::Decorations(true));
+        }
+        app.refresh_family();
         app.start();
         app
+    }
+
+    fn refresh_family(&mut self) {
+        for (i, a) in App::ALL.into_iter().enumerate() {
+            if a == App::Analyser {
+                continue;
+            }
+            self.installed[i] = family::find(a.program(), self.s.family.get(a.name())).is_some();
+        }
     }
 
     fn start(&mut self) {
@@ -198,14 +237,6 @@ impl AnalyserApp {
         }
     }
 
-    fn style(&self) -> spectrum::Style {
-        spectrum::Style {
-            scheme: self.s.scheme,
-            fill: self.s.look,
-            strength: 1.0,
-        }
-    }
-
     fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
         self.fullscreen = on;
         ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on));
@@ -220,13 +251,13 @@ impl AnalyserApp {
         }));
     }
 
-    /// With the controls showing, scale everything so the strip fits.
+    /// With the controls showing, scale everything so the bar fits.
     fn fit_to_window(&self, ui: &Ui) {
         let ctx = ui.ctx();
         let zoom = ctx.zoom_factor();
         let screen = ctx.content_rect().size() * zoom;
         let want = if self.s.controls {
-            (screen.x / STRIP.x).clamp(0.4, 1.0)
+            (screen.x / BAR_W).clamp(0.5, 1.0)
         } else {
             1.0
         };
@@ -236,19 +267,46 @@ impl AnalyserApp {
         }
     }
 
+    fn tell(&mut self, s: impl Into<String>, t: f64) {
+        self.message = Some((s.into(), t));
+    }
+
+    fn source_label(&self) -> String {
+        match (&self.capture, &self.error) {
+            (Some(c), _) => {
+                let rate = c.sample_rate.load(std::sync::atomic::Ordering::Relaxed);
+                if rate > 0 && !self.s.simple {
+                    format!("{} · {:.1} kHz", c.description, rate as f32 / 1000.0)
+                } else {
+                    c.description.clone()
+                }
+            }
+            (None, Some(_)) => "Not listening".into(),
+            (None, None) => "Stopped".into(),
+        }
+    }
+
+    /// The colour of a bar or LED at horizontal position `x` and level `l`.
+    fn colour(&self, t: &Tokens, x: f32, l: f32) -> Color32 {
+        if self.s.ink {
+            t.ink
+        } else {
+            self.s.scheme.colour(x, l)
+        }
+    }
+
     // ------------------------------------------------------------ display
 
-    fn display(&self, ui: &Ui, rect: Rect) {
-        let p = ui.painter().with_clip_rect(rect.expand(2.0));
-        p.rect_filled(rect.expand(2.0), CornerRadius::same(4), Color32::BLACK);
-        p.rect_filled(rect, CornerRadius::same(3), LCD_BG);
+    fn display(&self, ui: &Ui, rect: Rect, t: &Tokens) {
+        hifi::display(ui.painter(), rect, t);
+        let p = ui.painter().with_clip_rect(rect);
         let plot = if self.s.grid {
             Rect::from_min_max(
-                rect.min + Vec2::new(44.0, 24.0),
-                rect.max - Vec2::new(22.0, 26.0),
+                rect.min + Vec2::new(48.0, 34.0),
+                rect.max - Vec2::new(20.0, 30.0),
             )
         } else {
-            rect.shrink(8.0)
+            rect.shrink2(Vec2::new(14.0, 30.0))
         };
         if plot.width() < 20.0 || plot.height() < 20.0 {
             return;
@@ -262,12 +320,11 @@ impl AnalyserApp {
         let slope = |f: f32| self.s.slope * (f / 1000.0).log2();
 
         if self.s.grid {
-            self.grid(&p, plot, range, &x_of);
+            self.grid(&p, plot, range, &x_of, t);
         }
 
         let sr = self.sample_rate();
         let an = &self.analyzer;
-        let style = self.style();
         let holding = self.s.hold_s > 0.0;
         match self.s.view {
             View::Curve => {
@@ -286,17 +343,30 @@ impl AnalyserApp {
                     }
                     x += 2.0;
                 }
-                spectrum::draw(
-                    &p,
-                    &pts,
-                    &levels,
-                    plot.left(),
-                    plot.right(),
-                    plot.bottom(),
-                    style,
-                );
+                if self.s.ink {
+                    let (fill, line) = match self.s.look {
+                        Look::FillAndLine => (0.22, 2.0),
+                        Look::LineOnly => (0.0, 2.0),
+                        Look::FillOnly => (0.45, 0.0),
+                    };
+                    hifi::ink_curve(&p, &pts, plot.bottom(), t.ink, fill, line);
+                } else {
+                    spectrum::draw(
+                        &p,
+                        &pts,
+                        &levels,
+                        plot.left(),
+                        plot.right(),
+                        plot.bottom(),
+                        spectrum::Style {
+                            scheme: self.s.scheme,
+                            fill: self.s.look,
+                            strength: 1.0,
+                        },
+                    );
+                }
                 if holding {
-                    let c = self.s.scheme.colour(0.5, 0.9);
+                    let c = self.colour(t, 0.5, 0.9);
                     p.add(Shape::line(peaks, Stroke::new(1.0, c.gamma_multiply(0.45))));
                 }
             }
@@ -320,40 +390,54 @@ impl AnalyserApp {
                     let peak = holding.then(|| lvl(an.peak_level(lo, hi, sr) + tilt));
                     let xt = (fc / F_MIN).ln() / (F_MAX / F_MIN).ln();
                     if self.s.view == View::Bars {
-                        self.bar(&p, r, xt, l, peak);
+                        self.bar(&p, r, xt, l, peak, t);
                     } else {
-                        self.led_column(&p, r, xt, l, peak);
+                        self.led_column(&p, r, xt, l, peak, t);
                     }
                 }
             }
         }
 
+        // What it's listening to, top left; frozen, top right.
+        hifi::ink_text(
+            &p,
+            Pos2::new(plot.left() + 4.0, rect.top() + 12.0),
+            Align2::LEFT_TOP,
+            &self.source_label().to_uppercase(),
+            hifi::num(11.5),
+            t,
+        );
         if let Some(e) = &self.error {
-            glow_text(
+            hifi::ink_text(
                 &p,
                 plot.center(),
                 Align2::CENTER_CENTER,
-                &format!("NO SIGNAL: {}", e.to_uppercase()),
-                font(F_MONO, 15.0),
-                LCD_INK,
-                0.5,
+                &format!("Not listening: {e}"),
+                hifi::ui_font(15.0),
+                t,
             );
         } else if self.frozen {
-            glow_text(
+            hifi::ink_text(
                 &p,
-                Pos2::new(plot.right() - 8.0, plot.top() + 8.0),
+                Pos2::new(plot.right() - 4.0, rect.top() + 12.0),
                 Align2::RIGHT_TOP,
                 "FROZEN",
-                font(F_MONO, 14.0),
-                LCD_INK,
-                0.5,
+                hifi::num(11.5),
+                t,
             );
         }
     }
 
-    fn grid(&self, p: &egui::Painter, plot: Rect, range: f32, x_of: &dyn Fn(f32) -> f32) {
-        let label_col = Color32::from_rgb(0xa8, 0x44, 0x2c);
-        let small = font(F_MONO, 11.0);
+    fn grid(
+        &self,
+        p: &egui::Painter,
+        plot: Rect,
+        range: f32,
+        x_of: &dyn Fn(f32) -> f32,
+        t: &Tokens,
+    ) {
+        let label_col = t.ink_faint(0.6);
+        let small = hifi::num(10.5);
         for &f in &[
             20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 200.0, 300.0, 400.0, 500.0,
             600.0, 700.0, 800.0, 900.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0,
@@ -363,7 +447,7 @@ impl AnalyserApp {
             let major = [100.0, 1000.0, 10_000.0].contains(&f);
             p.line_segment(
                 [Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())],
-                Stroke::new(1.0, LCD_DIM.gamma_multiply(if major { 1.6 } else { 0.7 })),
+                Stroke::new(1.0, t.ink_faint(if major { 0.16 } else { 0.07 })),
             );
         }
         for &(f, l) in &[
@@ -372,20 +456,19 @@ impl AnalyserApp {
             (100.0, "100"),
             (200.0, "200"),
             (500.0, "500"),
-            (1000.0, "1K"),
-            (2000.0, "2K"),
-            (5000.0, "5K"),
-            (10_000.0, "10K"),
-            (20_000.0, "20K"),
+            (1000.0, "1k"),
+            (2000.0, "2k"),
+            (5000.0, "5k"),
+            (10_000.0, "10k"),
+            (20_000.0, "20k"),
         ] {
-            text(
+            hifi::label(
                 p,
-                Pos2::new(x_of(f), plot.bottom() + 6.0),
+                Pos2::new(x_of(f), plot.bottom() + 7.0),
                 Align2::CENTER_TOP,
                 l,
                 small.clone(),
                 label_col,
-                0.5,
             );
         }
         let step = if range > 80.0 { 20 } else { 10 };
@@ -394,36 +477,25 @@ impl AnalyserApp {
             let y = plot.bottom() - (db as f32 + range) / range * plot.height();
             p.line_segment(
                 [Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)],
-                Stroke::new(1.0, LCD_DIM),
+                Stroke::new(1.0, t.ink_faint(0.10)),
             );
-            text(
+            hifi::label(
                 p,
-                Pos2::new(plot.left() - 7.0, y),
+                Pos2::new(plot.left() - 8.0, y),
                 Align2::RIGHT_CENTER,
                 &db.to_string(),
                 small.clone(),
                 label_col,
-                0.3,
             );
             db -= step;
         }
-        text(
-            p,
-            Pos2::new(plot.left() - 7.0, plot.top() - 9.0),
-            Align2::RIGHT_BOTTOM,
-            "DB",
-            small,
-            label_col,
-            0.3,
-        );
     }
 
     /// A solid bar, brighter at the top, with a peak cap.
-    fn bar(&self, p: &egui::Painter, r: Rect, xt: f32, l: f32, peak: Option<f32>) {
-        let scheme = self.s.scheme;
+    fn bar(&self, p: &egui::Painter, r: Rect, xt: f32, l: f32, peak: Option<f32>, t: &Tokens) {
         let top = r.bottom() - l * r.height();
         if l > 0.0 {
-            let (c_top, c_bot) = (scheme.colour(xt, l), scheme.colour(xt, 0.0));
+            let (c_top, c_bot) = (self.colour(t, xt, l), self.colour(t, xt, 0.0));
             let a = if self.s.look == Look::LineOnly {
                 0.35
             } else {
@@ -461,14 +533,21 @@ impl AnalyserApp {
             let y = r.bottom() - pk * r.height();
             p.line_segment(
                 [Pos2::new(r.left(), y), Pos2::new(r.right(), y)],
-                Stroke::new(2.0, scheme.colour(xt, pk).gamma_multiply(0.85)),
+                Stroke::new(2.0, self.colour(t, xt, pk).gamma_multiply(0.85)),
             );
         }
     }
 
     /// A column of LED segments, lit up to the level.
-    fn led_column(&self, p: &egui::Painter, r: Rect, xt: f32, l: f32, peak: Option<f32>) {
-        let scheme = self.s.scheme;
+    fn led_column(
+        &self,
+        p: &egui::Painter,
+        r: Rect,
+        xt: f32,
+        l: f32,
+        peak: Option<f32>,
+        t: &Tokens,
+    ) {
         let seg = (r.height() / 40.0).clamp(4.0, 12.0);
         let count = (r.height() / seg).floor().max(1.0) as usize;
         let peak_seg = peak.map(|pk| ((pk * count as f32).ceil() as usize).min(count));
@@ -479,8 +558,8 @@ impl AnalyserApp {
                 Pos2::new(r.left(), y1 - seg + 1.5),
                 Pos2::new(r.right(), y1),
             );
-            let t = (i as f32 + 0.5) / count as f32;
-            let c = scheme.colour(xt, t);
+            let tt = (i as f32 + 0.5) / count as f32;
+            let c = self.colour(t, xt, tt);
             let on = i < lit || peak_seg == Some(i + 1);
             p.rect_filled(
                 cell,
@@ -490,74 +569,90 @@ impl AnalyserApp {
         }
     }
 
-    // ------------------------------------------------------------ controls
+    // ------------------------------------------------------------ top
 
-    fn controls(&mut self, ui: &mut Ui, o: Vec2, th: &Theme) {
-        let at = |x: f32, y: f32| Pos2::new(x, y) + o;
-
-        // Wordmark, logo and model line
-        {
-            let p = ui.painter();
-            let mut job = LayoutJob::default();
-            job.append(
-                "Timster's Audio Works - ",
-                0.0,
-                TextFormat {
-                    font_id: font(F_MAKER, 12.0),
-                    color: th.legend_dim,
-                    ..Default::default()
-                },
-            );
-            job.append(
-                "Analyser",
-                0.0,
-                TextFormat {
-                    font_id: font(F_MAKER_BOLD, 12.0),
-                    color: th.legend,
-                    ..Default::default()
-                },
-            );
-            let g = p.layout_job(job);
-            let r = Rect::from_min_size(at(18.0, 14.0), g.size() + Vec2::new(18.0, 8.0));
-            p.rect_stroke(
-                r,
-                CornerRadius::same(3),
-                Stroke::new(1.0, th.frame),
-                StrokeKind::Inside,
-            );
-            p.galley(r.min + Vec2::new(9.0, 4.0), g, th.legend);
+    fn plate(&mut self, ui: &mut Ui, screen: Rect, t: &Tokens) {
+        let now = ui.input(|i| i.time);
+        let plate = Rect::from_min_size(screen.min, Vec2::new(screen.width(), PLATE_H));
+        if !self.s.system_title_bar {
+            hifi::drag_to_move(ui, plate);
         }
-        slanted_text(
+        hifi::nameplate(
             ui,
-            at(20.0, 46.0),
-            "ANALYSER",
-            font(F_LOGO, 24.0),
-            th.legend,
-            2.5,
-            12.0,
+            screen.min + Vec2::new(24.0, 14.0),
+            t,
+            "Analyser",
+            &format!("SP-001 · Spectrum analyser · V{VERSION}"),
         );
-        text(
-            ui.painter(),
-            at(18.0, 86.0),
-            Align2::LEFT_TOP,
-            &format!("SP-001 · SPECTRUM ANALYSER · V{VERSION}"),
-            font(F_LEGEND, 9.5),
-            th.legend_dim,
-            2.0,
+        let right = screen.right() - 24.0;
+        if !self.s.system_title_bar {
+            hifi::window_buttons(ui, Pos2::new(screen.right() - 10.0, screen.top() + 10.0), t);
+        }
+        let row = screen.top() + 66.0;
+        let gear = Rect::from_min_size(Pos2::new(right - 30.0, row - 15.0), Vec2::splat(30.0));
+        if hifi::gear_button(ui, gear, Id::new("settings"), t, self.settings_open).clicked() {
+            self.settings_open = !self.settings_open;
+        }
+        let (seg, picked) = hifi::segmented(
+            ui,
+            Pos2::new(gear.left() - 12.0, row),
+            true,
+            Id::new("simple"),
+            t,
+            &["Simple", "Detailed"],
+            if self.s.simple { 0 } else { 1 },
+            Seg::Plain,
+            &[],
+            &[],
         );
-        text(
-            ui.painter(),
-            at(18.0, 104.0),
-            Align2::LEFT_TOP,
-            "H CONTROLS · F11 FULL SCREEN · SPACE FREEZE",
-            font(F_LEGEND, 9.0),
-            th.legend_dim,
-            0.8,
-        );
+        if let Some(i) = picked {
+            self.s.simple = i == 0;
+        }
+        let (_, picked) =
+            hifi::family_switch(ui, Pos2::new(seg.left() - 14.0, row), t, 3, self.installed);
+        if let Some(i) = picked {
+            let a = App::ALL[i];
+            match family::find(a.program(), self.s.family.get(a.name())) {
+                Some(exe) => match family::launch(&exe) {
+                    Ok(()) => self.tell(format!("Starting the {}…", a.name()), now),
+                    Err(e) => self.tell(format!("The {} wouldn't start: {e}", a.name()), now),
+                },
+                None => self.tell(
+                    format!(
+                        "The {} isn't installed here (looked next to the Analyser and on the PATH).",
+                        a.name()
+                    ),
+                    now,
+                ),
+            }
+            self.refresh_family();
+        }
+    }
+
+    // ------------------------------------------------------------ bottom bar
+
+    fn controls(&mut self, ui: &mut Ui, bar: Rect, t: &Tokens) {
+        hifi::bar(ui.painter(), bar, t);
+        let ctx = ui.ctx().clone();
+        let x0 = bar.left() + 24.0;
+        let right = bar.right() - 24.0;
+        let row1 = bar.top() + 31.0;
+        let lab = |ui: &Ui, x: f32, y: f32, s: &str| {
+            hifi::label(
+                ui.painter(),
+                Pos2::new(x, y),
+                Align2::LEFT_CENTER,
+                s,
+                hifi::ui_font(12.0),
+                t.dim,
+            )
+        };
 
         // Source
-        let r = Rect::from_min_size(at(256.0, 16.0), Vec2::new(300.0, 104.0));
-        section(ui.painter(), r, "Source", th, false);
+        let mut x = x0;
+        if !self.s.simple {
+            x = lab(ui, x, row1, "Source").right() + 10.0;
+        }
         let mut items: Vec<String> = self.sources.iter().map(|s| s.label.clone()).collect();
         let current = self
             .s
@@ -569,211 +664,310 @@ impl AnalyserApp {
             items.push(format!("{current} (not found)"));
             cur = Some(items.len() - 1);
         }
-        let combo = Rect::from_min_size(at(270.0, 34.0), Vec2::new(272.0, 24.0));
-        if let Some(i) = lcd_combo(ui, combo, "source", &items, cur.unwrap_or(0)) {
+        let combo = Rect::from_min_size(Pos2::new(x, row1 - 13.0), Vec2::new(230.0, 26.0));
+        if let Some(i) = hifi::select(ui, combo, "source", t, &items, cur.unwrap_or(0)) {
             if let Some(src) = self.sources.get(i) {
                 self.s.source = Some(src.id.clone());
                 self.start();
             }
         }
-        let status = match (&self.capture, &self.error) {
-            (Some(c), _) => {
-                let rate = c.sample_rate.load(std::sync::atomic::Ordering::Relaxed);
-                if rate > 0 {
-                    format!("{}  {:.1} KHZ", c.description, rate as f32 / 1000.0)
-                } else {
-                    c.description.clone()
-                }
+        x = combo.right() + 6.0;
+        if !self.s.simple {
+            let w = hifi::button_width(ui, "Rescan");
+            let r = Rect::from_min_size(Pos2::new(x, row1 - 13.0), Vec2::new(w, 26.0));
+            if hifi::button(ui, r, Id::new("rescan"), t, "Rescan", false).clicked() {
+                self.sources = capture::sources();
             }
-            (None, Some(_)) => "NOT LISTENING".into(),
-            (None, None) => "STOPPED".into(),
-        };
-        let lr = Rect::from_min_size(at(270.0, 66.0), Vec2::new(204.0, 22.0));
-        ui.painter().rect_filled(lr, CornerRadius::same(2), LCD_BG);
-        glow_text(
-            &ui.painter().with_clip_rect(lr.shrink(2.0)),
-            lr.left_center() + Vec2::new(8.0, 0.0),
-            Align2::LEFT_CENTER,
-            &status,
-            font(F_MONO, 12.0),
-            LCD_INK,
-            0.3,
-        );
-        let kr = Rect::from_min_size(at(488.0, 68.0), Vec2::new(52.0, 18.0));
-        if key(ui, kr, Id::new("rescan"), K_GREY, None, "Rescan", th).clicked() {
-            self.sources = capture::sources();
+            x = r.right();
         }
+        x += 22.0;
 
         // View
-        let r = Rect::from_min_size(at(572.0, 16.0), Vec2::new(176.0, 104.0));
-        section(ui.painter(), r, "View", th, false);
-        for (i, v) in View::ALL.iter().enumerate() {
-            let kr = Rect::from_min_size(at(586.0 + i as f32 * 52.0, 42.0), Vec2::new(44.0, 14.0));
-            if key(
+        if !self.s.simple {
+            x = lab(ui, x, row1, "View").right() + 10.0;
+        }
+        let names: [&str; 3] = if self.s.simple {
+            ["Smooth", "Bars", "LEDs"]
+        } else {
+            ["Curve", "Bars", "LEDs"]
+        };
+        let sel = View::ALL
+            .iter()
+            .position(|v| *v == self.s.view)
+            .unwrap_or(0);
+        let (r, picked) = hifi::segmented(
+            ui,
+            Pos2::new(x, row1),
+            false,
+            Id::new("view"),
+            t,
+            &names,
+            sel,
+            Seg::Accent,
+            &[],
+            &[],
+        );
+        if let Some(i) = picked {
+            self.s.view = View::ALL[i];
+        }
+        x = r.right() + 22.0;
+
+        // Bands per octave, for Bars and LEDs.
+        if !self.s.simple {
+            x = lab(ui, x, row1, "Bands").right() + 10.0;
+            let opts = [3u32, 6, 12];
+            let sel = opts
+                .iter()
+                .position(|n| *n == self.s.per_octave)
+                .unwrap_or(0);
+            let (_, picked) = hifi::segmented(
                 ui,
-                kr,
-                Id::new(("view", i)),
-                K_ORANGE,
-                Some(self.s.view == *v),
-                v.short(),
-                th,
-            )
-            .clicked()
-            {
-                self.s.view = *v;
+                Pos2::new(x, row1),
+                false,
+                Id::new("per-octave"),
+                t,
+                &["1/3", "1/6", "1/12"],
+                sel,
+                Seg::Accent,
+                &[],
+                &[],
+            );
+            if let Some(i) = picked {
+                self.s.per_octave = opts[i];
             }
         }
-        for (i, n) in [3u32, 6, 12].iter().enumerate() {
-            let kr = Rect::from_min_size(at(586.0 + i as f32 * 52.0, 86.0), Vec2::new(44.0, 14.0));
-            let label = format!("1/{n} OCT");
-            if key(
-                ui,
-                kr,
-                Id::new(("per-oct", i)),
-                K_GREY,
-                Some(self.s.per_octave == *n),
-                &label,
-                th,
-            )
-            .clicked()
-            {
-                self.s.per_octave = *n;
-            }
-        }
 
-        // Colour
-        let r = Rect::from_min_size(at(764.0, 16.0), Vec2::new(156.0, 104.0));
-        section(ui.painter(), r, "Colour", th, false);
-        let kr = Rect::from_min_size(at(780.0, 42.0), Vec2::new(56.0, 18.0));
-        if key(ui, kr, Id::new("scheme"), K_CREAM, None, "Colour", th).clicked() {
-            self.s.scheme = self.s.scheme.next();
-        }
-        readout(ui.painter(), at(808.0, 80.0), self.s.scheme.name(), 64.0);
-        let kr = Rect::from_min_size(at(848.0, 42.0), Vec2::new(56.0, 18.0));
-        if key(ui, kr, Id::new("look"), K_CREAM, None, "Style", th).clicked() {
-            self.s.look = self.s.look.next();
-        }
-        readout(ui.painter(), at(876.0, 80.0), self.s.look.name(), 64.0);
-
-        // Motion: rise, fall, hold
-        let r = Rect::from_min_size(at(936.0, 16.0), Vec2::new(236.0, 104.0));
-        section(ui.painter(), r, "Motion", th, false);
-        let knobs: [(&str, &Spec, f32); 3] = [
-            ("Rise", &RISE, 976.0),
-            ("Fall", &FALL, 1054.0),
-            ("Hold", &HOLD, 1132.0),
+        // Freeze, on top, full screen (right).
+        let labels: [&str; 3] = [
+            "Freeze",
+            if self.s.simple {
+                "Stay on top"
+            } else {
+                "On top"
+            },
+            if self.fullscreen {
+                "Leave full screen"
+            } else {
+                "Full screen"
+            },
         ];
-        for (name, spec, x) in knobs {
-            let v = match name {
-                "Rise" => &mut self.s.rise_ms,
-                "Fall" => &mut self.s.fall_ms,
-                _ => &mut self.s.hold_s,
-            };
-            knob(
-                ui,
-                at(x, 54.0),
-                16.0,
-                Id::new(name),
-                v,
-                spec,
-                Some(FAM_MOD),
-                th,
-            );
-            legend(ui.painter(), at(x, 76.0), Align2::CENTER_TOP, name, th);
-            let shown = match name {
-                "Hold" if *v <= 0.0 => "OFF".to_string(),
-                "Hold" => format!("{v:.1} S"),
-                _ => format!("{v:.0} MS"),
-            };
-            readout(ui.painter(), at(x, 92.0), &shown, 60.0);
-        }
-
-        // Scale: range and slope
-        let r = Rect::from_min_size(at(1188.0, 16.0), Vec2::new(162.0, 104.0));
-        section(ui.painter(), r, "Scale", th, false);
-        knob(
-            ui,
-            at(1228.0, 54.0),
-            16.0,
-            Id::new("range"),
-            &mut self.s.range_db,
-            &RANGE,
-            None,
-            th,
-        );
-        legend(
-            ui.painter(),
-            at(1228.0, 76.0),
-            Align2::CENTER_TOP,
-            "Range",
-            th,
-        );
-        readout(
-            ui.painter(),
-            at(1228.0, 92.0),
-            &format!("{:.0} DB", self.s.range_db),
-            60.0,
-        );
-        knob(
-            ui,
-            at(1308.0, 54.0),
-            16.0,
-            Id::new("slope"),
-            &mut self.s.slope,
-            &SLOPE,
-            Some(FAM_TONE),
-            th,
-        );
-        legend(
-            ui.painter(),
-            at(1308.0, 76.0),
-            Align2::CENTER_TOP,
-            "Slope",
-            th,
-        );
-        readout(
-            ui.painter(),
-            at(1308.0, 92.0),
-            &format!("{:.1} DB/OCT", self.s.slope),
-            70.0,
-        );
-
-        // Window keys
-        let ctx = ui.ctx().clone();
-        let keys: [(&str, bool); 4] = [
-            ("Full", self.fullscreen),
-            ("On top", self.s.on_top),
-            ("Grid", self.s.grid),
-            ("Hide", false),
-        ];
-        for (i, (label, on)) in keys.iter().enumerate() {
-            let kr = Rect::from_min_size(
-                at(1368.0 + (i % 2) as f32 * 60.0, 34.0 + (i / 2) as f32 * 46.0),
-                Vec2::new(50.0, 16.0),
-            );
-            let led_on = (i < 3).then_some(*on);
-            if key(ui, kr, Id::new(("win", i)), K_GREY, led_on, label, th).clicked() {
+        let states = [self.frozen, self.s.on_top, self.fullscreen];
+        let mut bx = right;
+        for i in (0..3).rev() {
+            let w = hifi::button_width(ui, labels[i]);
+            let r = Rect::from_min_size(Pos2::new(bx - w, row1 - 13.0), Vec2::new(w, 26.0));
+            if hifi::button(ui, r, Id::new(("win", i)), t, labels[i], states[i]).clicked() {
                 match i {
-                    0 => self.set_fullscreen(&ctx, !self.fullscreen),
+                    0 => self.frozen = !self.frozen,
                     1 => self.set_on_top(&ctx, !self.s.on_top),
-                    2 => self.s.grid = !self.s.grid,
-                    _ => self.s.controls = false,
+                    _ => self.set_fullscreen(&ctx, !self.fullscreen),
                 }
             }
+            bx = r.left() - 6.0;
         }
+
+        if self.s.simple {
+            return;
+        }
+
+        // Row two: motion and scale knobs, grid, colour and style.
+        let row2 = bar.top() + 86.0;
+        let mut x = x0;
+        lab(ui, x, row2, "Motion");
+        x += 72.0;
+        for (name, spec, v) in [
+            ("Rise", &RISE, &mut self.s.rise_ms),
+            ("Fall", &FALL, &mut self.s.fall_ms),
+            ("Hold", &HOLD, &mut self.s.hold_s),
+        ] {
+            let shown = match name {
+                "Hold" if *v <= 0.0 => "off".to_string(),
+                "Hold" => format!("{v:.1} s"),
+                _ => format!("{v:.0} ms"),
+            };
+            hifi::knob(
+                ui,
+                Pos2::new(x, row2 - 10.0),
+                Id::new(name),
+                t,
+                v,
+                spec,
+                &shown,
+                name,
+            );
+            x += 64.0;
+        }
+        let sep = |ui: &Ui, x: f32| {
+            ui.painter().line_segment(
+                [Pos2::new(x, row2 - 30.0), Pos2::new(x, row2 + 28.0)],
+                Stroke::new(1.0, t.line),
+            );
+        };
+        sep(ui, x - 10.0);
+        x += 18.0;
+        lab(ui, x, row2, "Scale");
+        x += 62.0;
+        let range = format!("{:.0} dB", self.s.range_db);
+        hifi::knob(
+            ui,
+            Pos2::new(x, row2 - 10.0),
+            Id::new("range"),
+            t,
+            &mut self.s.range_db,
+            &RANGE,
+            &range,
+            "Range",
+        );
+        x += 70.0;
+        let slope = format!("{:.1} dB/oct", self.s.slope);
+        hifi::knob(
+            ui,
+            Pos2::new(x, row2 - 10.0),
+            Id::new("slope"),
+            t,
+            &mut self.s.slope,
+            &SLOPE,
+            &slope,
+            "Slope",
+        );
+        x += 56.0;
+        sep(ui, x);
+        x += 26.0;
+        hifi::labelled_switch(
+            ui,
+            Pos2::new(x, row2 - 9.0),
+            Id::new("grid"),
+            t,
+            &mut self.s.grid,
+            "Grid",
+        );
+
+        // Colour and style (right).
+        let mut colours = vec!["Display".to_string()];
+        colours.extend(Scheme::ALL.iter().map(|s| title_case(s.name())));
+        let sel = if self.s.ink {
+            0
+        } else {
+            1 + Scheme::ALL
+                .iter()
+                .position(|s| *s == self.s.scheme)
+                .unwrap_or(0)
+        };
+        let styles: Vec<String> = Look::ALL
+            .iter()
+            .map(|l| {
+                match l {
+                    Look::FillAndLine => "Fill and line",
+                    Look::LineOnly => "Line",
+                    Look::FillOnly => "Fill",
+                }
+                .to_string()
+            })
+            .collect();
+        let style_r = Rect::from_min_size(
+            Pos2::new(right - 130.0, row2 - 13.0),
+            Vec2::new(130.0, 26.0),
+        );
+        let ssel = Look::ALL
+            .iter()
+            .position(|l| *l == self.s.look)
+            .unwrap_or(0);
+        if let Some(i) = hifi::select(ui, style_r, "style", t, &styles, ssel) {
+            self.s.look = Look::ALL[i];
+        }
+        let sl = hifi::label(
+            ui.painter(),
+            Pos2::new(style_r.left() - 10.0, row2),
+            Align2::RIGHT_CENTER,
+            "Style",
+            hifi::ui_font(12.0),
+            t.dim,
+        );
+        let col_r = Rect::from_min_size(
+            Pos2::new(sl.left() - 20.0 - 120.0, row2 - 13.0),
+            Vec2::new(120.0, 26.0),
+        );
+        if let Some(i) = hifi::select(ui, col_r, "colour", t, &colours, sel) {
+            if i == 0 {
+                self.s.ink = true;
+            } else {
+                self.s.ink = false;
+                self.s.scheme = Scheme::ALL[i - 1];
+            }
+        }
+        hifi::label(
+            ui.painter(),
+            Pos2::new(col_r.left() - 10.0, row2),
+            Align2::RIGHT_CENTER,
+            "Colour",
+            hifi::ui_font(12.0),
+            t.dim,
+        );
+    }
+
+    fn settings(&mut self, ctx: &egui::Context, t: &Tokens) {
+        let mut open = self.settings_open;
+        let mut look = self.s.finish;
+        let mut system_bar = self.s.system_title_bar;
+        hifi::drawer(ctx, t, "Settings", &mut open, |ui| {
+            hifi::look_settings(ui, t, &mut look);
+            hifi::drawer_heading(ui, t, "Window");
+            let r = hifi::drawer_row(ui, t, "Use the system title bar", 32.0);
+            let r = Rect::from_min_size(r.min + Vec2::new(0.0, 4.0), Vec2::new(32.0, 18.0));
+            if hifi::switch(ui, r, Id::new("system-bar"), t, system_bar).clicked() {
+                system_bar = !system_bar;
+            }
+            hifi::drawer_heading(ui, t, "Keys");
+            for (k, what) in [
+                ("H", "Hide or show the controls"),
+                ("Space", "Freeze the display"),
+                ("F11", "Full screen"),
+                ("Esc", "Leave full screen"),
+            ] {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [64.0, 18.0],
+                        egui::Label::new(
+                            egui::RichText::new(k).font(hifi::num(12.0)).color(t.text),
+                        ),
+                    );
+                    ui.label(
+                        egui::RichText::new(what)
+                            .font(hifi::ui_font(12.5))
+                            .color(t.dim),
+                    );
+                });
+            }
+        });
+        self.settings_open = open;
+        self.s.finish = look;
+        if system_bar != self.s.system_title_bar {
+            self.s.system_title_bar = system_bar;
+            ctx.send_viewport_cmd(ViewportCommand::Decorations(system_bar));
+        }
+    }
+}
+
+fn title_case(s: &str) -> String {
+    let lower = s.to_lowercase();
+    let mut c = lower.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
     }
 }
 
 impl eframe::App for AnalyserApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.fit_to_window(ui);
-        let th = Theme::new(self.s.panel, KnobStyle::Colour);
-        set_visuals(ui.ctx(), &th);
         let ctx = ui.ctx().clone();
+        let t = Tokens::from_ctx(&ctx, &self.s.finish);
+        hifi::apply_visuals(&ctx, &t);
+        let now = ui.input(|i| i.time);
 
         // Keys: H shows / hides the controls, F11 full screen, Esc leaves
         // full screen, Space freezes the display.
-        let free = ui.memory(|m| m.focused().is_none());
+        let free = ui.memory(|m| m.focused().is_none()) && !self.settings_open;
         let (h, f11, esc, space) = ui.input(|i| {
             (
                 i.key_pressed(Key::H),
@@ -788,19 +982,11 @@ impl eframe::App for AnalyserApp {
         if f11 {
             self.set_fullscreen(&ctx, !self.fullscreen);
         }
-        if esc && self.fullscreen {
+        if esc && self.fullscreen && !self.settings_open {
             self.set_fullscreen(&ctx, false);
         }
         if free && space {
             self.frozen = !self.frozen;
-        }
-        // A double-click on the display brings the controls back.
-        let screen = ui.max_rect();
-        if !self.s.controls {
-            let resp = ui.interact(screen, Id::new("display"), egui::Sense::click());
-            if resp.double_clicked() {
-                self.s.controls = true;
-            }
         }
 
         self.analyzer.ballistics = self.ballistics();
@@ -810,18 +996,49 @@ impl eframe::App for AnalyserApp {
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
 
-        ui.painter().rect_filled(screen, 0, th.page);
-        draw_panel_bg(ui.painter(), screen, &th);
-        let strip_h = if self.s.controls { STRIP.y } else { 0.0 };
-        let display = Rect::from_min_max(
-            screen.min + Vec2::splat(12.0),
-            Pos2::new(screen.right() - 12.0, screen.bottom() - 12.0 - strip_h),
-        );
-        self.display(ui, display);
-        if self.s.controls {
-            let left = (screen.center().x - STRIP.x / 2.0).max(screen.left());
-            let o = Vec2::new(left, screen.bottom() - STRIP.y);
-            self.controls(ui, o, &th);
+        let screen = ui.max_rect();
+        hifi::faceplate(ui.painter(), screen, &t);
+        let display = if self.s.controls {
+            let bar_h = if self.s.simple {
+                BAR_SIMPLE
+            } else {
+                BAR_DETAILED
+            };
+            self.plate(ui, screen, &t);
+            let bar = Rect::from_min_max(
+                Pos2::new(screen.left(), screen.bottom() - bar_h),
+                screen.max,
+            );
+            self.controls(ui, bar, &t);
+            Rect::from_min_max(
+                Pos2::new(screen.left() + 24.0, screen.top() + PLATE_H + 4.0),
+                Pos2::new(screen.right() - 24.0, bar.top() - 16.0),
+            )
+        } else {
+            // A clean display: drag it to move the window, double-click it
+            // to bring the controls back.
+            let resp = ui.interact(screen, Id::new("display"), egui::Sense::click_and_drag());
+            if resp.double_clicked() {
+                self.s.controls = true;
+            } else if resp.drag_started_by(egui::PointerButton::Primary) && !self.s.system_title_bar
+            {
+                ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+            }
+            screen.shrink(12.0)
+        };
+        self.display(ui, display, &t);
+
+        if let Some((m, at)) = &self.message {
+            if now - at < 6.0 {
+                let p = ui.painter();
+                let pos = Pos2::new(display.left() + 14.0, display.bottom() - 12.0);
+                hifi::ink_text(p, pos, Align2::LEFT_BOTTOM, m, hifi::ui_font(13.0), &t);
+            }
+        }
+
+        self.settings(&ctx, &t);
+        if !self.s.system_title_bar && !self.fullscreen {
+            hifi::resize_edges(ui, screen);
         }
     }
 
@@ -830,23 +1047,35 @@ impl eframe::App for AnalyserApp {
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        Theme::new(self.s.panel, KnobStyle::Colour)
-            .page
+        Tokens::new(&self.s.finish, false)
+            .face_bottom
             .to_normalized_gamma_f32()
     }
 }
 
-fn set_visuals(ctx: &egui::Context, th: &Theme) {
-    let mut v = egui::Visuals::dark();
-    v.window_fill = Color32::from_rgb(0x1f, 0x1f, 0x1f);
-    v.panel_fill = th.panel;
-    v.extreme_bg_color = LCD_BG;
-    v.selection.bg_fill = LCD_DIM;
-    v.selection.stroke = Stroke::new(1.0, LCD_INK);
-    v.override_text_color = Some(Color32::from_rgb(0xec, 0xe8, 0xdd));
-    v.window_stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xec, 0xe8, 0xdd, 60));
-    v.widgets.hovered.weak_bg_fill = LCD_DIM;
-    if ctx.global_style().visuals != v {
-        ctx.set_visuals(v);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn older_settings_still_load() {
+        // Settings saved by 0.1.0 have no look, ink or simple fields.
+        let s: Saved = serde_json::from_str(
+            r#"{"view":"Bars","per_octave":6,"scheme":"Amber","panel":"Silver"}"#,
+        )
+        .unwrap();
+        assert_eq!(s.view, View::Bars);
+        assert_eq!(s.per_octave, 6);
+        assert!(
+            s.ink,
+            "new installs and upgrades start with the display ink"
+        );
+        assert_eq!(s.finish, hifi::Look::default());
+        assert!(!s.simple);
+    }
+
+    #[test]
+    fn colour_names() {
+        assert_eq!(title_case("RAINBOW"), "Rainbow");
     }
 }
