@@ -29,7 +29,7 @@ cargo test
 cargo clippy --target x86_64-pc-windows-gnu -- -D warnings   # Windows still compiles
 ```
 
-For panel changes, screenshot it under Xvfb at 1280 × 720 and at a narrow size such as 800 × 500, in Anodised and Porcelain, light and dark.
+For panel changes, screenshot it under Xvfb at 1280 × 720 and at a narrow size such as 800 × 500, in Spool and Porcelain, light and dark.
 
 ## Workflow
 

@@ -2584,7 +2584,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "taw-analyser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "eframe",
@@ -2597,8 +2597,8 @@ dependencies = [
 
 [[package]]
 name = "taw-panel"
-version = "0.2.0"
-source = "git+https://github.com/TimsterAudio/TAW-Panel?rev=ce561c2f843f7b7e093958975c48837f95b530db#ce561c2f843f7b7e093958975c48837f95b530db"
+version = "0.3.0"
+source = "git+https://github.com/TimsterAudio/TAW-Panel?rev=1b8162d75d10c41a8c9b021fc3d31e2a3311aeb6#1b8162d75d10c41a8c9b021fc3d31e2a3311aeb6"
 dependencies = [
  "egui",
  "rtrb",

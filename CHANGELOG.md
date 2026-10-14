@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-The new TAW look (first working build, for review).
+## 0.2.0 – 2026-10-14
+
+The new TAW look, from TAW-Panel 0.3.0, matching the Equaliser.
 
 - Spool's look by default (Light, Amber), with Spool's seven colour themes tinting the whole panel, and Porcelain as the alternative; each in Light, Dark or Automatic (following the computer). Chosen in Settings (the gear).
 - The display window fills the window; the controls sit in a bar along the bottom. The badge, logo and model line stay as before.

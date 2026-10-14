@@ -1,6 +1,6 @@
 # TAW Analyser
 
-**Timster's Audio Works – Analyser (SP-001) v0.1.0**: a stand-alone spectrum analyser for Windows and Linux, in the TAW look shared with the Library, Player and Equaliser (Anodised or Porcelain, light or dark).
+**Timster's Audio Works – Analyser (SP-001) v0.2.0**: a stand-alone spectrum analyser for Windows and Linux, in the TAW look shared with the Library, Player and Equaliser (Spool or Porcelain, light or dark).
 
 ![The Analyser](docs/screenshot.png)
 
