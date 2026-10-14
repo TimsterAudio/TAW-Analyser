@@ -15,7 +15,7 @@ The Analyser (SP-001) is Timster's Audio Works' stand-alone spectrum analyser, w
 | File | What it does |
 |---|---|
 | `src/main.rs` | The window. |
-| `src/app.rs` | The display (curve, bars, LED columns, grid) and the control strip, which scales to fit narrow windows and hides with H. |
+| `src/app.rs` | The nameplate and family switcher, the display (curve, bars, LED columns, grid), the control bar (scales to fit narrow windows; H hides it) and the settings drawer. |
 | `src/capture.rs` | Listen-only input: an output's monitor (PipeWire) or loopback (WASAPI), or an input device (cpal). |
 | `src/family.rs` | Finding and starting the Library, Player and Equaliser. |
 | `src/icon.rs` | The window icon. |
