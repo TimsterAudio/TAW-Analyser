@@ -2,7 +2,11 @@
 
 **Timster's Audio Works – Analyser (SP-001) v0.2.0**: a stand-alone spectrum analyser for Windows and Linux, in the TAW look shared with the Library, Player and Equaliser (Spool or Porcelain, light or dark).
 
-![The Analyser](docs/screenshot.png)
+![The Analyser in Spool's look (Light, Amber), drawing a curve](docs/screenshot.png)
+
+| Porcelain, Dark, with bars | Simple view at 800 × 500, Spool Dark, with LEDs |
+|---|---|
+| ![The Analyser in Porcelain Dark, drawing bars](docs/screenshot-porcelain-dark.png) | ![The Analyser's Simple view in a small window, drawing LED columns](docs/screenshot-simple.png) |
 
 It's a desktop program written in Rust (egui for the panel), formerly the SP-10 that came with EQ Box. It doesn't need the Equaliser or anything else installed: on Windows the `.exe` can be copied anywhere by itself. **It only listens and never plays anything**, so it can't feed back.
 
@@ -15,12 +19,13 @@ From the [Releases page](https://github.com/TimsterAudio/TAW-Analyser/releases/l
 
 ## What it does
 
+- **Look:** Spool (in its seven colour themes) or Porcelain, each light, dark or following the computer, chosen in Settings (the gear). **Simple** shows just the picture and a few controls; **Detailed** has everything.
 - **Source:** the default output (whatever is playing), any other output, or an input such as a microphone. Outputs are heard through PipeWire's monitors on Linux and WASAPI loopback on Windows.
 - **View:** a curve, bars or LED columns, at 1/3, 1/6 or 1/12 octave.
-- **Colour** and **Style:** red, amber, green, ice, white, rainbow or heat; filled, line or both. The same schemes as the Equaliser's analyser.
+- **Colour** and **Style:** the display's own ink (the default), or red, amber, green, ice, white, rainbow or heat; filled, line or both. The same schemes as the Equaliser's analyser.
 - **Motion:** **Rise** and **Fall** times, and **Hold** for peak markers (off at 0).
 - **Scale:** the **Range** shown below 0 dBFS (40 to 120 dB), and the **Slope** in dB per octave (3 makes pink noise read flat).
-- **For any screen:** the window resizes freely. **H** hides the controls (double-click the display to bring them back), **F11** or **Full** goes full screen, **On top** keeps it above other windows, **Grid** shows or hides the scale, and **Space** freezes the display.
+- **For any screen:** the window resizes freely. **H** hides the controls (double-click the display to bring them back), **F11** or **Full screen** goes full screen, **On top** keeps it above other windows, **Grid** shows or hides the scale, and **Space** freezes the display.
 
 ## Building
 
