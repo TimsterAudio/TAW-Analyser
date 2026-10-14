@@ -12,8 +12,8 @@ use crate::capture::{self, Capture, Source, DEFAULT_OUTPUT};
 use crate::family::{self, App};
 use egui::epaint::{Mesh, Vertex, WHITE_UV};
 use egui::{
-    Align2, Color32, CornerRadius, Id, Key, Pos2, Rect, Shape, Stroke, Ui, Vec2, ViewportCommand,
-    WindowLevel,
+    Align2, Color32, CornerRadius, Id, Key, Pos2, Rect, Shape, Stroke, StrokeKind, Ui, Vec2,
+    ViewportCommand, WindowLevel,
 };
 use serde::{Deserialize, Serialize};
 use taw_panel::analyzer::{analyzer_channel, Analyzer, Ballistics};
@@ -416,15 +416,33 @@ impl AnalyserApp {
                 hifi::ui_font(15.0),
                 t,
             );
-        } else if self.frozen {
-            hifi::ink_text(
+        }
+        let mut right = plot.right() - 4.0;
+        if self.frozen && self.error.is_none() {
+            let r = hifi::ink_text(
                 &p,
-                Pos2::new(plot.right() - 4.0, rect.top() + 12.0),
+                Pos2::new(right, rect.top() + 12.0),
                 Align2::RIGHT_TOP,
                 "FROZEN",
                 hifi::num(11.5),
                 t,
             );
+            right = r.left() - 16.0;
+        }
+        // A passing message (family keys), on the same line, clear of the
+        // spectrum and the frequency scale.
+        let now = ui.input(|i| i.time);
+        if let Some((m, at)) = &self.message {
+            if now - at < 6.0 {
+                hifi::ink_text(
+                    &p,
+                    Pos2::new(right, rect.top() + 11.0),
+                    Align2::RIGHT_TOP,
+                    m,
+                    hifi::ui_font(12.5),
+                    t,
+                );
+            }
         }
     }
 
@@ -963,7 +981,6 @@ impl eframe::App for AnalyserApp {
         let ctx = ui.ctx().clone();
         let t = Tokens::from_ctx(&ctx, &self.s.finish);
         hifi::apply_visuals(&ctx, &t);
-        let now = ui.input(|i| i.time);
 
         // Keys: H shows / hides the controls, F11 full screen, Esc leaves
         // full screen, Space freezes the display.
@@ -1010,6 +1027,10 @@ impl eframe::App for AnalyserApp {
                 screen.max,
             );
             self.controls(ui, bar, &t);
+            // The bar covers the faceplate's edge; draw the window's outline
+            // over both.
+            ui.painter()
+                .rect_stroke(screen, 0, Stroke::new(1.0, t.edge), StrokeKind::Inside);
             Rect::from_min_max(
                 Pos2::new(screen.left() + 24.0, screen.top() + PLATE_H + 4.0),
                 Pos2::new(screen.right() - 24.0, bar.top() - 16.0),
@@ -1027,14 +1048,6 @@ impl eframe::App for AnalyserApp {
             screen.shrink(12.0)
         };
         self.display(ui, display, &t);
-
-        if let Some((m, at)) = &self.message {
-            if now - at < 6.0 {
-                let p = ui.painter();
-                let pos = Pos2::new(display.left() + 14.0, display.bottom() - 12.0);
-                hifi::ink_text(p, pos, Align2::LEFT_BOTTOM, m, hifi::ui_font(13.0), &t);
-            }
-        }
 
         self.settings(&ctx, &t);
         if !self.s.system_title_bar && !self.fullscreen {

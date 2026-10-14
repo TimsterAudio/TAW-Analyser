@@ -8,7 +8,7 @@ The new TAW look (first working build, for review).
 - The display window fills the window; the controls sit in a bar along the bottom. The badge, logo and model line stay as before.
 - The Analyser draws its own title strip: drag it to move the window, double-click to maximise, and use its own minimise, maximise and close buttons. Settings has "Use the system title bar" to bring back the system's.
 - Simple view: just the source, Smooth/Bars/LEDs, Freeze, Stay on top and Full screen. Detailed has everything.
-- The family switcher starts the Library, Player or Equaliser when they're installed.
+- The family switcher starts the Library, Player or Equaliser when they're installed, and says so along the top of the display when one isn't.
 - The spectrum draws in the display's own ink by default (white, or dark on light Porcelain); the colour schemes are still in the Colour menu.
 
 ## 0.1.0 – 2026-10-13
