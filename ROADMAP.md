@@ -19,7 +19,7 @@ Sizes: S = one session, M = two or three, L = a release of its own. Briefs from 
 - [ ] Linux output monitors; an input (microphone)
 - [ ] Full screen and On top on a second screen
 - [ ] Fixes from the user's feedback
-- [ ] The family's tighter look: TAW-Panel 0.4.0, the Player's top band; the spectrum falls away in silence (on the branch, for the user's test)
+- [x] The family's tighter look: TAW-Panel 0.4.0, the Player's top band; the spectrum falls away in silence *(0.2.1)*
 
 ### 0.3.0: more ways to look
 

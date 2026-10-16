@@ -5,7 +5,8 @@ Written 2026-10-14 when the family's work moved from one shared chat to a chat p
 ## Where it stands
 
 - **0.2.0 released on 2026-10-14** (merged to `main`; release.yml publishes `v0.2.0`): the new TAW look. Spool finish by default (Light, Amber), Porcelain alternative; display fills the window; controls in a bottom bar (H hides it); no system title bar (own window buttons, drag, resize; "Use the system title bar" in Settings); Simple and Detailed; family switcher. The spectrum draws in the display's ink by default; colour schemes are in the Colour menu.
-- TAW-Panel pinned at its 0.4.0 commit `d030ffd` (the Player's and Equaliser's pin) from 2026-10-16, on branch `claude/affectionate-lamport-4qi1x0`, not yet merged or released.
+- **0.2.1 released on 2026-10-16** (merged to `main`; release.yml publishes `v0.2.1`): the family's tighter look and the spectrum falling away in silence (below).
+- TAW-Panel pinned at its 0.4.0 commit `d030ffd`, the same as the Player and Equaliser.
 
 ## Workup, 2026-10-14
 
@@ -25,7 +26,7 @@ Matches the Equaliser: same TAW-Panel pin, nameplate, window buttons, family swi
 
 ## Next
 
-1. The user's visual test of the branch against the Player and Equaliser, then 0.2.1 (bump and merge to release).
+1. The user's visual test of 0.2.1 against the Player and Equaliser, and of the spectrum falling away on Windows.
 2. The rest of 0.2.x in ROADMAP: tests with real sources on Windows and Linux.
 
 ## How to test here
