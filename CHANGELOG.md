@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The family's tighter look (TAW-Panel 0.4.0), as in the Player and Equaliser: the nameplate is the badge and model line without the big ANALYSER, the top band is shorter (the display gets the room), corners are tighter, and the chosen half of Simple / Detailed stands out.
+- **The window resizes from its corners** too, and every time (TAW-Panel 0.3.2).
+- **The spectrum falls away when the sound stops.** On Windows nothing comes through loopback while the output is silent, so the spectrum stood still where the music ended; after a quarter of a second with no audio it now drops to the floor, and the peak marks follow.
+
 ## 0.2.0 – 2026-10-14
 
 The new TAW look, from TAW-Panel 0.3.0, matching the Equaliser.

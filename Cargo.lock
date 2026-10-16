@@ -2597,8 +2597,8 @@ dependencies = [
 
 [[package]]
 name = "taw-panel"
-version = "0.3.0"
-source = "git+https://github.com/TimsterAudio/TAW-Panel?rev=1b8162d75d10c41a8c9b021fc3d31e2a3311aeb6#1b8162d75d10c41a8c9b021fc3d31e2a3311aeb6"
+version = "0.4.0"
+source = "git+https://github.com/TimsterAudio/TAW-Panel?rev=d030ffdbc51c48e784cd74b20c5547a766461e5a#d030ffdbc51c48e784cd74b20c5547a766461e5a"
 dependencies = [
  "egui",
  "rtrb",

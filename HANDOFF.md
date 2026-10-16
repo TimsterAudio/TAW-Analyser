@@ -5,7 +5,7 @@ Written 2026-10-14 when the family's work moved from one shared chat to a chat p
 ## Where it stands
 
 - **0.2.0 released on 2026-10-14** (merged to `main`; release.yml publishes `v0.2.0`): the new TAW look. Spool finish by default (Light, Amber), Porcelain alternative; display fills the window; controls in a bottom bar (H hides it); no system title bar (own window buttons, drag, resize; "Use the system title bar" in Settings); Simple and Detailed; family switcher. The spectrum draws in the display's ink by default; colour schemes are in the Colour menu.
-- TAW-Panel pinned at its 0.3.0 commit `1b8162d`, the same as the Equaliser.
+- TAW-Panel pinned at its 0.4.0 commit `d030ffd` (the Player's and Equaliser's pin) from 2026-10-16, on branch `claude/affectionate-lamport-4qi1x0`, not yet merged or released.
 
 ## Workup, 2026-10-14
 
@@ -16,9 +16,17 @@ Checked with live audio at 1280 × 720 and 800 × 500: Simple and Detailed; Curv
 
 Matches the Equaliser: same TAW-Panel pin, nameplate, window buttons, family switcher, Simple/Detailed, gear and settings drawer (Look, Window).
 
+## 2026-10-16: lined up with the Player and Equaliser
+
+- **TAW-Panel 0.4.0** (`d030ffd`): the shorter nameplate (badge and model line), one corner radius, the heavier chosen segment, the drawer's section hairlines, corner resizing (0.3.2). Meter colours aren't used: the Analyser has no meters.
+- **Top band at the Player's measurements:** plate 66 (was 96), nameplate at (24, 10), window buttons at 6 from the top, the key row (family switcher, Simple/Detailed, gear) at 46; the display starts at plate + 8, so it gets 26 px more height.
+- **The Equaliser's spectrum fix, where it applies.** The Equaliser's flicker came from hiding the spectrum and its dB scale whenever `Analyzer::active` was false; the Analyser never checked `active` (its scale is drawn with the grid), so it never flickered. The other half does apply: with no samples (Windows loopback while the output is silent) the bins stood still. `fall_when_unfed` in `app.rs` lets them fall 60 dB/s after 0.25 s without samples, peaks at their own fall rate; Freeze still holds the picture. Under Xvfb the spectrum fell to the floor within 3 s of stopping playback, but a PipeWire monitor may keep sending silence, so that doesn't prove the no-samples path; check on Windows.
+- Checks pass (fmt, clippy for Linux and Windows, tests); screenshots under Xvfb at 1280 × 720 and 800 × 500, Spool and Porcelain, light and dark, and the settings drawer. README screenshots replaced.
+
 ## Next
 
-1. The user's feedback on 0.2.0, picked up in this app's own chat.
+1. The user's visual test of the branch against the Player and Equaliser, then 0.2.1 (bump and merge to release).
+2. The rest of 0.2.x in ROADMAP: tests with real sources on Windows and Linux.
 
 ## How to test here
 

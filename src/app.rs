@@ -29,7 +29,15 @@ const BAR_W: f32 = 1100.0;
 pub const DEFAULT_SIZE: Vec2 = Vec2::new(1280.0, 720.0);
 const F_MIN: f32 = 20.0;
 const F_MAX: f32 = 20_000.0;
-const PLATE_H: f32 = 96.0;
+/// The nameplate strip (drag it to move the window), as in the Player and
+/// Equaliser.
+const PLATE_H: f32 = 66.0;
+/// The middle of the nameplate's row of keys, just under the window buttons.
+const ROW_Y: f32 = 46.0;
+/// How long without samples before the spectrum falls away, in seconds.
+const UNFED_S: f64 = 0.25;
+/// How fast it falls then, in dB a second.
+const UNFED_FALL_DB_S: f32 = 60.0;
 const BAR_DETAILED: f32 = 132.0;
 const BAR_SIMPLE: f32 = 62.0;
 
@@ -155,6 +163,8 @@ pub struct AnalyserApp {
     settings_open: bool,
     installed: [bool; 4],
     message: Option<(String, f64)>,
+    /// When the analyser last had samples (egui's clock).
+    fed: f64,
 }
 
 impl AnalyserApp {
@@ -175,6 +185,7 @@ impl AnalyserApp {
             settings_open: false,
             installed: [false, false, false, true],
             message: None,
+            fed: f64::NEG_INFINITY,
         };
         app.analyzer.hop = 1024;
         if app.s.on_top {
@@ -214,6 +225,26 @@ impl AnalyserApp {
                 self.error = None;
             }
             Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// `Analyzer::active` only says whether samples came in since the last
+    /// frame. Audio comes in blocks that can be longer than a frame, and not
+    /// at all from Windows' loopback while the output is silent, so the
+    /// spectrum would stand still where the sound stopped. After a moment
+    /// with nothing, let it (and the peak marks) fall away instead.
+    fn fall_when_unfed(&mut self, (now, dt): (f64, f32)) {
+        if self.analyzer.active {
+            self.fed = now;
+        } else if now - self.fed > UNFED_S {
+            let an = &mut self.analyzer;
+            for b in &mut an.bins_db {
+                *b = (*b - UNFED_FALL_DB_S * dt).max(-140.0);
+            }
+            let fall = an.ballistics.peak_fall_db_s * dt;
+            for (p, &b) in an.peaks_db.iter_mut().zip(&an.bins_db) {
+                *p = (*p - fall).max(b);
+            }
         }
     }
 
@@ -597,16 +628,16 @@ impl AnalyserApp {
         }
         hifi::nameplate(
             ui,
-            screen.min + Vec2::new(24.0, 14.0),
+            screen.min + Vec2::new(24.0, 10.0),
             t,
             "Analyser",
             &format!("SP-001 · Spectrum analyser · V{VERSION}"),
         );
         let right = screen.right() - 24.0;
         if !self.s.system_title_bar {
-            hifi::window_buttons(ui, Pos2::new(screen.right() - 10.0, screen.top() + 10.0), t);
+            hifi::window_buttons(ui, Pos2::new(screen.right() - 10.0, screen.top() + 6.0), t);
         }
-        let row = screen.top() + 66.0;
+        let row = screen.top() + ROW_Y;
         let gear = Rect::from_min_size(Pos2::new(right - 30.0, row - 15.0), Vec2::splat(30.0));
         if hifi::gear_button(ui, gear, Id::new("settings"), t, self.settings_open).clicked() {
             self.settings_open = !self.settings_open;
@@ -1010,6 +1041,7 @@ impl eframe::App for AnalyserApp {
         self.analyzer.sample_rate = self.sample_rate();
         if !self.frozen {
             self.analyzer.update();
+            self.fall_when_unfed(ctx.input(|i| (i.time, i.stable_dt)));
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
 
@@ -1032,7 +1064,7 @@ impl eframe::App for AnalyserApp {
             ui.painter()
                 .rect_stroke(screen, 0, Stroke::new(1.0, t.edge), StrokeKind::Inside);
             Rect::from_min_max(
-                Pos2::new(screen.left() + 24.0, screen.top() + PLATE_H + 4.0),
+                Pos2::new(screen.left() + 24.0, screen.top() + PLATE_H + 8.0),
                 Pos2::new(screen.right() - 24.0, bar.top() - 16.0),
             )
         } else {
