@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.2 – 2026-11-01
+
+- **One Analyser at a time.** Clicking the Analyser in another app's family switcher (or opening the Analyser again) brings the open one to the front, restored if it was minimised, instead of starting a second Analyser.
+- Starting another family app no longer leaves a finished process behind each time.
+
 ## 0.2.1 – 2026-10-16
 
 Lined up with the Player and Equaliser.
