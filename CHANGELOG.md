@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **The warm finish is called Linen** (it was Spool) in Settings. It looks the same, and a saved "Spool" choice opens as Linen. From TAW-Panel 0.5.0.
+
 ## 0.2.2 – 2026-11-01
 
 - **One Analyser at a time.** Clicking the Analyser in another app's family switcher (or opening the Analyser again) brings the open one to the front, restored if it was minimised, instead of starting a second Analyser.

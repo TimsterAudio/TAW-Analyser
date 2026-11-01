@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 # Unreleased (0.3.0 to be): the hifi look, with the spectrum drawing and the analyser
-taw-panel = { git = "https://github.com/TimsterAudio/TAW-Panel", rev = "d030ffdbc51c48e784cd74b20c5547a766461e5a", features = ["analyser"] }
+taw-panel = { git = "https://github.com/TimsterAudio/TAW-Panel", rev = "41b1742396d58f261228f124b38290e3e168e1d9", features = ["analyser"] } # 0.5.0
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "persistence", "wayland", "x11"] }
 egui = "0.36"
 cpal = "0.18"
