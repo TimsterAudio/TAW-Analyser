@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.3 – 2026-11-01
+
 - **The warm finish is called Linen** (it was Spool) in Settings. It looks the same, and a saved "Spool" choice opens as Linen. From TAW-Panel 0.5.0.
 
 ## 0.2.2 – 2026-11-01
