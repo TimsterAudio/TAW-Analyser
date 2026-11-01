@@ -9,8 +9,14 @@ mod app;
 mod capture;
 mod family;
 mod icon;
+mod instance;
 
 fn main() -> eframe::Result {
+    // One Analyser at a time: if one is open, bring it forward instead.
+    let dir = instance::data_dir();
+    if dir.as_deref().is_some_and(instance::hand_over) {
+        return Ok(());
+    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("TAW Analyser")
@@ -26,6 +32,11 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "TAW Analyser",
         options,
-        Box::new(|cc| Ok(Box::new(app::AnalyserApp::new(cc)))),
+        Box::new(move |cc| {
+            if let Some(dir) = dir {
+                instance::watch(dir, cc.egui_ctx.clone());
+            }
+            Ok(Box::new(app::AnalyserApp::new(cc)))
+        }),
     )
 }

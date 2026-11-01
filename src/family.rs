@@ -122,7 +122,15 @@ pub fn launch(exe: &Path) -> Result<(), String> {
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    // Collect it when it ends (straight away, if it handed over to one
+    // that was already open), so it doesn't linger as a finished process.
+    let _ = std::thread::Builder::new()
+        .name("family-child".into())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(())
 }
 
 #[cfg(test)]

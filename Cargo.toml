@@ -1,6 +1,6 @@
 [package]
 name = "taw-analyser"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Timster's Audio Works Analyser (SP-001): a stand-alone spectrum analyser for Windows (WASAPI) and Linux (PipeWire)"
 authors = ["Timster's Audio Works"]
@@ -16,6 +16,10 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# AllowSetForegroundWindow: a second launch lets the open Analyser come to the front
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = { version = "0.10", features = ["v0_3_53"] }
